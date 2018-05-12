@@ -134,11 +134,15 @@ def coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_resize
     fpath = os.path.join(coco_root,folder_name, img_info['file_name'])
     
     image = cv2.cvtColor(cv2.imread(fpath), cv2.COLOR_BGR2RGB)
+    rect = np.ones( (image.shape[0], image.shape[1]) )
     image_scaled_and_padded, scale, shiftyx = scale_and_pad(image, longer_edge_out=longer_edge_resize)
+    rect_scaled_and_padded = scale_and_pad(rect, longer_edge_out=longer_edge_resize)[0]
     
+
     ret = dict()
     ret['image'] = image
     ret['image_scaled_and_padded'] = image_scaled_and_padded
+    ret['rect_scaled_and_padded'] = rect_scaled_and_padded
     ret['shiftyx'] = shiftyx
     ret['scale'] = scale
     ret['img_info'] = img_info
@@ -193,7 +197,7 @@ def filter_masks(masks):
 
     return masks_out   
 
-def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds , longer_edge_size, scale_range=(0.5,1.5), shift_range=0, rot_range=0, allow_overlaps=True, debug=False):
+def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds , catIds, longer_edge_size, scale_range=(0.5,1.5), shift_range=0, rot_range=0, allow_overlaps=True, debug=False):
     mask_area_th = 0.10 # Percentage
     min_visible_kps = 6
     overlap_check_dilation_size = 15
@@ -312,11 +316,11 @@ def load_and_preprocess_image(fpath, longer_edge_out=255, pad_value=0, scale_mod
 
     
     
-def get_composition(coco, coco_kps, coco_root, imgIds, params, debug=False):
+def get_composition(coco, coco_kps, coco_root, imgIds, catIds, params, debug=False):
     # Get images A and B
     time_before = time.time()
-    A = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_A'], shift_range=params['shift_range_A'], rot_range=params['rot_range_A'], allow_overlaps=params['allow_overlaps_in_A'])
-    B = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_B'], shift_range=params['shift_range_B'], rot_range=params['rot_range_B'], allow_overlaps=params['allow_overlaps_in_B']) # we don't care about overlaps here
+    A = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_A'], shift_range=params['shift_range_A'], rot_range=params['rot_range_A'], allow_overlaps=params['allow_overlaps_in_A'])
+    B = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_B'], shift_range=params['shift_range_B'], rot_range=params['rot_range_B'], allow_overlaps=params['allow_overlaps_in_B']) # we don't care about overlaps here
     
     B_person, B_person_mask = extract_dominant_person(B, longer_edge_size=params['longer_edge_size'])
     timing_images_sampling = time.time() - time_before
@@ -420,6 +424,7 @@ def get_composition(coco, coco_kps, coco_root, imgIds, params, debug=False):
     out['A'] = A
     out['B'] = B
     out['inserted'] = np.multiply(B['image_scaled_and_padded'], np.stack([ B_person_mask,B_person_mask,B_person_mask ], axis=2))
+    out['inserted_mask'] = B_person_mask
     out['y'] = np.expand_dims(gt[::8,::8,:], 0)
     out['occ_mask'] = occ_mask_out[::8,::8]
     out['masks'] = masks
