@@ -34,6 +34,8 @@ default_composition_params['shift_range_A'] = 0
 default_composition_params['shift_range_B'] = 0
 default_composition_params['rot_range_A'] = 0
 default_composition_params['rot_range_B'] = 0
+default_composition_params['image_interpolation'] = cv2.INTER_NEAREST # possible values like cv2.INTER_LINEAR etc.
+default_composition_params['mask_interpolation'] = cv2.INTER_NEAREST # possible values like cv2.INTER_LINEAR etc.
 
 
 
@@ -61,33 +63,6 @@ def get_composite_mask(masks, dilation_size=0):
     return out
 
 
-def scale_and_pad(image, longer_edge_out=255, pad_value=0, pad_mode='CENTER', scale_mode='max'):
-    """Takes an image and rescales it with padding while keeping the ratio intact and putting image in the center or in the top-left corner """
-    
-    # Checking if the image is 2D or 3D (with channels)
-    if(len(image.shape)>2):
-        num_channels = image.shape[-1]
-        image_scaled_and_padded = np.zeros((longer_edge_out,longer_edge_out,num_channels)) + pad_value
-    else:
-        num_channels = 1
-        image_scaled_and_padded = np.zeros((longer_edge_out,longer_edge_out)) + pad_value
-
-    # Calculate the scale according to the longer edge of image
-#    if scale_mode=='min':
-#        scale = float(longer_edge_out/ np.min([ image.shape[1], image.shape[0] ]))
-#    else:
-    scale = float(longer_edge_out/ np.max([ image.shape[1], image.shape[0] ]))        
-    image = cv2.resize(image,None, fx=scale, fy=scale)
-    if(pad_mode is 'CENTER'):
-        shiftyx = (longer_edge_out-np.array(image.shape[0:2]))//2
-    else:
-        shiftyx = [0,0]
-        
-    # Put the image in place
-    image_scaled_and_padded[shiftyx[0]:shiftyx[0]+image.shape[0], shiftyx[1]:shiftyx[1]+image.shape[1],] = image
-    return image_scaled_and_padded, scale, shiftyx
-
-
 # FIXME: Needs to be moved to untils.py when ready!
 def get_augmentation_params(w,h, aug_shift_range=0, aug_rot_range=0, aug_scale_range=None, aug_shear_range=0):
     T = np.zeros((2,3))
@@ -111,7 +86,7 @@ def get_augmentation_params(w,h, aug_shift_range=0, aug_rot_range=0, aug_scale_r
         R = cv2.getRotationMatrix2D((w/2,h/2), angle_deg,1)
     return R, T
 
-def coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_resize):
+def coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_resize, image_interpolation=None):
     # LOADING IMAGE INFO AND ANNOTATIONS
     img_info = coco.loadImgs(imgId)[0]
     annIds = coco_kps.getAnnIds(imgIds=img_info['id'], catIds=catIds)
@@ -135,7 +110,7 @@ def coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_resize
     
     image = cv2.cvtColor(cv2.imread(fpath), cv2.COLOR_BGR2RGB)
     rect = np.ones( (image.shape[0], image.shape[1]) )
-    image_scaled_and_padded, scale, shiftyx = scale_and_pad(image, longer_edge_out=longer_edge_resize)
+    image_scaled_and_padded, scale, shiftyx = scale_and_pad(image, longer_edge_out=longer_edge_resize, interpolation=image_interpolation)
     rect_scaled_and_padded = scale_and_pad(rect, longer_edge_out=longer_edge_resize)[0]
     
 
@@ -197,7 +172,7 @@ def filter_masks(masks):
 
     return masks_out   
 
-def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds , catIds, longer_edge_size, scale_range=(0.5,1.5), shift_range=0, rot_range=0, allow_overlaps=True, debug=False):
+def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds , catIds, longer_edge_size, scale_range=(0.5,1.5), shift_range=0, rot_range=0, allow_overlaps=True, image_interpolation=None, debug=False):
     mask_area_th = 0.10 # Percentage
     min_visible_kps = 6
     overlap_check_dilation_size = 15
@@ -206,7 +181,7 @@ def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds 
     while 1:
         time_before = time.time()
         imgId = imgIds[np.random.uniform(0, len(imgIds), (1,)).astype(np.int32)[0]]
-        IM = coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_size)
+        IM = coco_load_image(coco, coco_kps, imgId, catIds, coco_root, longer_edge_size, image_interpolation=image_interpolation)
         time_after = time.time()
         timing_sampling = time_after-time_before
         
@@ -281,7 +256,7 @@ def get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds 
         return IM
     
     
-def scale_and_pad(image, longer_edge_out=255, pad_value=0, pad_mode='CENTER', scale_mode='max'):
+def scale_and_pad(image, longer_edge_out=255, pad_value=0, pad_mode='CENTER', scale_mode='max', interpolation=None):
     """Takes an image and rescales it with padding while keeping the ratio intact and putting image in the center or in the top-left corner """
     
     # Checking if the image is 2D or 3D (with channels)
@@ -297,8 +272,11 @@ def scale_and_pad(image, longer_edge_out=255, pad_value=0, pad_mode='CENTER', sc
 #        scale = float(longer_edge_out/ np.min([ image.shape[1], image.shape[0] ]))
 #    else:
     scale = float(longer_edge_out/ np.max([ image.shape[1], image.shape[0] ]))     
-        
-    image = cv2.resize(image,None, fx=scale, fy=scale)
+
+    if interpolation is None:
+        interpolation = cv2.INTER_NEAREST    
+    
+    image = cv2.resize(image,None, fx=scale, fy=scale, interpolation=interpolation)
     if(pad_mode is 'CENTER'):
         shiftyx = (longer_edge_out-np.array(image.shape[0:2]))//2
     else:
@@ -319,8 +297,8 @@ def load_and_preprocess_image(fpath, longer_edge_out=255, pad_value=0, scale_mod
 def get_composition(coco, coco_kps, coco_root, imgIds, catIds, params, debug=False):
     # Get images A and B
     time_before = time.time()
-    A = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_A'], shift_range=params['shift_range_A'], rot_range=params['rot_range_A'], allow_overlaps=params['allow_overlaps_in_A'])
-    B = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_B'], shift_range=params['shift_range_B'], rot_range=params['rot_range_B'], allow_overlaps=params['allow_overlaps_in_B']) # we don't care about overlaps here
+    A = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_A'], shift_range=params['shift_range_A'], rot_range=params['rot_range_A'], allow_overlaps=params['allow_overlaps_in_A'], image_interpolation=params['image_interpolation'])
+    B = get_image_suitable_for_blending_with_meta(coco, coco_kps, coco_root, imgIds, catIds, longer_edge_size=params['longer_edge_size'], scale_range=params['scale_range_B'], shift_range=params['shift_range_B'], rot_range=params['rot_range_B'], allow_overlaps=params['allow_overlaps_in_B'], image_interpolation=params['image_interpolation']) # we don't care about overlaps here
     
     B_person, B_person_mask = extract_dominant_person(B, longer_edge_size=params['longer_edge_size'])
     timing_images_sampling = time.time() - time_before
